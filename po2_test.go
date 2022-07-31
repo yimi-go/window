@@ -9,8 +9,8 @@ import (
 
 func TestLastPo2(t *testing.T) {
 	tests := []struct {
-		ensure    uint64
-		want      uint64
+		ensure    int64
+		want      int64
 		wantPanic bool
 	}{
 		{
@@ -44,10 +44,10 @@ func TestLastPo2(t *testing.T) {
 	}
 }
 
-func TestNextPo2(t *testing.T) {
+func TestNextGreaterPo2(t *testing.T) {
 	tests := []struct {
-		ensure uint64
-		want   uint64
+		ensure int64
+		want   int64
 	}{
 		{
 			ensure: 0,
@@ -55,11 +55,11 @@ func TestNextPo2(t *testing.T) {
 		},
 		{
 			ensure: 1,
-			want:   1,
+			want:   2,
 		},
 		{
 			ensure: 2,
-			want:   2,
+			want:   4,
 		},
 		{
 			ensure: 3,
@@ -72,7 +72,7 @@ func TestNextPo2(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%d", tt.ensure), func(t *testing.T) {
-			assert.Equal(t, tt.want, nextPo2(tt.ensure))
+			assert.Equal(t, tt.want, nextGreaterPo2(tt.ensure))
 		})
 	}
 }

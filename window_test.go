@@ -8,47 +8,60 @@ import (
 	"github.com/yimi-go/iter"
 )
 
-func TestPo2Window_Iterate(t *testing.T) {
-	now := time.Now()
-	NowFunc = func() time.Time { return now }
-	defer func() {
-		NowFunc = time.Now
-	}()
-	w := newPo2Window(8, 16, 512)
-	_, offset := windowNowRound(w)
-	got := w.Iterate(offset)
-	want := &po2Iter{
-		cur: offset + 1,
-		end: offset + 8 + 1,
-		w:   w,
+func TestNewWindow(t *testing.T) {
+	w := newWindow(10, 200)
+	tk := newTrack(10, 200)
+	want := &window{
+		track: tk,
+		size:  10,
 	}
-	assert.Equal(t, want, got)
-	assert.Equal(t, uint64(8), iter.Count(got))
+	assert.Equal(t, want, w)
 }
 
-func TestPo2Window_Append(t *testing.T) {
-	//now := time.UnixMilli(1659008022464)
-	now := time.Now()
+func TestWindow_append(t *testing.T) {
+	now := time.UnixMilli(int64(999)<<11 + 111)
 	NowFunc = func() time.Time { return now }
 	defer func() {
 		NowFunc = time.Now
 	}()
-	w := newPo2Window(8, 16, 512)
-	_, offset := windowNowRound(w)
-	w.Append(1.0)
-	assert.Equal(t, uint64(1), iter.Count(w.buckets[offset].Points(windowNowRound(w))))
-	v, ok := w.buckets[offset].Points(windowNowRound(w)).Next()
-	assert.True(t, ok)
-	assert.Equal(t, 1.0, v)
-	now = now.Add(16 * time.Millisecond)
-	w.Append(1.0)
-	assert.Equal(t, uint64(1), iter.Count(w.buckets[offset].Points(windowNowRound(w))), "now: %d", now.UnixMilli())
-	offsetNext := (offset + 1) & w.bucketMask
-	assert.Equal(t, uint64(1), iter.Count(w.buckets[offsetNext].Points(windowNowRound(w))), "now: %d", now.UnixMilli())
-	now = now.Add(time.Duration(len(w.buckets)) * 16 * time.Millisecond)
-	w.Append(1.0)
-	assert.Equal(t, uint64(1), iter.Count(w.buckets[offsetNext].Points(windowNowRound(w))), "now: %d", now.UnixMilli())
-	v, ok = w.buckets[offsetNext].Points(windowNowRound(w)).Next()
-	assert.True(t, ok)
-	assert.Equal(t, 1.0, v)
+	w := newWindow(10, 200)
+	w.append(1.2)
+	bkt := w.track.buckets[0]
+	assert.Equal(t, int64(999), bkt.round)
+	assert.Equal(t, 1, len(bkt.points))
+	assert.Equal(t, 1.2, bkt.points[0])
 }
+
+func TestWindow_Iterate(t *testing.T) {
+	now := time.UnixMilli(int64(999)<<11 + 111)
+	NowFunc = func() time.Time { return now }
+	defer func() {
+		NowFunc = time.Now
+	}()
+	w := newWindow(10, 200)
+	w.append(1.2)
+	it := w.Iterate().(*windowIter)
+	assert.Equal(t, 16, len(it.buckets))
+	assert.Equal(t, int64(15), it.bucketMask)
+	assert.Equal(t, int64(999), it.round)
+	assert.Equal(t, int64(0), it.offset)
+	assert.Equal(t, int64(7), it.cur)
+	assert.Equal(t, uint64(10), iter.Count[Bucket](it))
+}
+
+//func Test_impl_Iterator(t *testing.T) {
+//	w := NewWindow(Options{Size: 3}).(*impl)
+//	for offset := 0; offset < 6; offset++ {
+//		for count := 0; count < 6; count++ {
+//			got := w.Iterator(offset, count)
+//			want := &iterator{
+//				count:         count,
+//				iteratedCount: 0,
+//				cur:           w.buckets[offset%w.size],
+//			}
+//			if !reflect.DeepEqual(want, got) {
+//				t.Errorf("want %v, got %v", want, got)
+//			}
+//		}
+//	}
+//}
