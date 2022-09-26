@@ -5,44 +5,64 @@ import (
 )
 
 type track struct {
-	buckets          []*bucket
-	size             int64
-	bucketMask       int64
-	bucketMillis     int64
-	bucketMillisBits int
-	cycleMillis      int64
-	cycleMillisBits  int
-	initUnixMilli    int64
+	// 每个 bucket 的时长。要求 int64 值是二的幂。
+	bucketDuration time.Duration
+	// bucket 时长掩码。
+	bucketDurationMask     uint64
+	bucketDurationMaskBits int
+	bucketNanoMask         uint64
+	bucketPositionMask     int
+	// 轨道上的桶。要求其长度是二的幂。
+	// 通常取值为：按需要的窗口 bucket 数向上找到可以满足的最小二的幂。
+	// 不能与要求的窗口 bucket 数相同。要给滑动前后留出空间。
+	buckets []bucket
+	// 轨道一圈耗时。要求 int64 值是二的幂。
+	roundDuration time.Duration
+	// 轨道周期掩码。
+	roundDurationMask     uint64
+	roundDurationMaskBits int
+	roundNanoMask         uint64
 }
 
-func newTrack(requireBuckets, requireBucketMillis int64) *track {
-	size := nextGreaterPo2(requireBuckets)
-	bucketMillis := lastPo2(requireBucketMillis)
-	bucketMillisBits, tmp := 0, bucketMillis
-	for tmp != 1 {
-		tmp >>= 1
-		bucketMillisBits++
+func newTrack(requireBuckets int, requireBucketDuration time.Duration) *track {
+	if requireBuckets <= 0 {
+		panic("window: bucket size can not be not positive")
 	}
-	cycleMillis := size << bucketMillisBits
-	cycleMillisBits, tmp := 0, cycleMillis
-	for tmp != 1 {
-		tmp >>= 1
-		cycleMillisBits++
+	if requireBucketDuration <= 0 {
+		panic("window: bucket duration can not be not positive")
 	}
-	nowMillis := NowFunc().Truncate(time.Millisecond).UnixMilli()
-	initUnixMilli := nowMillis & ((1<<63 - 1) ^ (cycleMillis - 1))
-	t := &track{
-		buckets:          make([]*bucket, size),
-		size:             size,
-		bucketMask:       size - 1,
-		bucketMillis:     bucketMillis,
-		bucketMillisBits: bucketMillisBits,
-		cycleMillis:      cycleMillis,
-		cycleMillisBits:  cycleMillisBits,
-		initUnixMilli:    initUnixMilli,
+	bucketSize := int(nextGreaterPo2(uint64(requireBuckets)))
+	bucketDuration := time.Duration(lastPo2(uint64(requireBucketDuration)))
+	bucketDurationMask := uint64(bucketDuration) - 1
+	roundDuration := bucketDuration * time.Duration(bucketSize)
+	roundDurationMask := uint64(roundDuration) - 1
+
+	track := &track{
+		bucketDuration:         bucketDuration,
+		bucketDurationMask:     bucketDurationMask,
+		bucketDurationMaskBits: countContinuouslyBits(bucketDurationMask),
+		bucketNanoMask:         ^bucketDurationMask,
+		bucketPositionMask:     bucketSize - 1,
+		buckets:                make([]bucket, bucketSize),
+		roundDuration:          roundDuration,
+		roundDurationMask:      roundDurationMask,
+		roundDurationMaskBits:  countContinuouslyBits(roundDurationMask),
+		roundNanoMask:          ^roundDurationMask,
 	}
-	for i := int64(0); i < size; i++ {
-		t.buckets[i] = newBucket()
+	for i := 0; i < bucketSize; i++ {
+		track.buckets[i].track = track
+		track.buckets[i].position = i
 	}
-	return t
+	return track
+}
+
+func (t *track) windowRoundAndPosition(instant time.Time) (round int64, position int) {
+	unixNano := instant.UnixNano()
+	if unixNano < 0 {
+		panic("window: we do not support instant before 1970-01-01 00:00:00")
+	}
+	round = int64((uint64(unixNano) & t.roundNanoMask) >> t.roundDurationMaskBits)
+	nanoInRound := uint64(unixNano) & t.roundDurationMask
+	position = int((nanoInRound & t.bucketNanoMask) >> t.bucketDurationMaskBits)
+	return
 }

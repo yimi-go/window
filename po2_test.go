@@ -9,8 +9,8 @@ import (
 
 func TestLastPo2(t *testing.T) {
 	tests := []struct {
-		ensure    int64
-		want      int64
+		ensure    uint64
+		want      uint64
 		wantPanic bool
 	}{
 		{
@@ -46,8 +46,8 @@ func TestLastPo2(t *testing.T) {
 
 func TestNextGreaterPo2(t *testing.T) {
 	tests := []struct {
-		ensure int64
-		want   int64
+		ensure uint64
+		want   uint64
 	}{
 		{
 			ensure: 0,
