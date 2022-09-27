@@ -1,7 +1,6 @@
 package window
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -44,22 +43,33 @@ func Test_window_Append(t *testing.T) {
 	defer func() {
 		Now = time.Now
 	}()
-	round, position := w.track.windowRoundAndPosition(now)
-	assert.NotEqual(t, round, w.track.buckets[position].round)
-	assert.Empty(t, w.track.buckets[position].data)
+	position := w.Position()
+	offset := int(uint64(position) & w.track.bucketIndexMask)
+	assert.Empty(t, w.track.buckets[offset].data)
+	assert.Equal(t, int64(0), w.track.buckets[offset].count)
 	w.Append(100)
 	for i := 0; i < len(w.track.buckets); i++ {
-		if i == position {
-			assert.Equal(t, round, w.track.buckets[i].round)
+		if i == offset {
 			assert.Equal(t, []int64{100}, w.track.buckets[i].data)
+			assert.Equal(t, int64(1), w.track.buckets[i].count)
 		} else {
-			assert.NotEqual(t, round, w.track.buckets[i].round)
 			assert.Empty(t, w.track.buckets[i].data)
+			assert.Equal(t, int64(0), w.track.buckets[i].count)
+		}
+	}
+	w.Append(100)
+	for i := 0; i < len(w.track.buckets); i++ {
+		if i == offset {
+			assert.Equal(t, []int64{100, 100}, w.track.buckets[i].data)
+			assert.Equal(t, int64(2), w.track.buckets[i].count)
+		} else {
+			assert.Empty(t, w.track.buckets[i].data)
+			assert.Equal(t, int64(0), w.track.buckets[i].count)
 		}
 	}
 }
 
-func Test_window_Aggregation(t *testing.T) {
+func Test_window_Add(t *testing.T) {
 	bucketDuration := time.Duration(1 << 30)
 	w := NewWindow(20, bucketDuration).(*window)
 	now := Now()
@@ -69,46 +79,113 @@ func Test_window_Aggregation(t *testing.T) {
 	defer func() {
 		Now = time.Now
 	}()
-	round, position := w.track.windowRoundAndPosition(now)
+	position := w.Position()
+	offset := int(uint64(position) & w.track.bucketIndexMask)
+	assert.Empty(t, w.track.buckets[offset].data)
+	assert.Equal(t, int64(0), w.track.buckets[offset].count)
+	w.Add(100)
+	for i := 0; i < len(w.track.buckets); i++ {
+		if i == offset {
+			assert.Equal(t, []int64{100}, w.track.buckets[i].data)
+			assert.Equal(t, int64(1), w.track.buckets[i].count)
+		} else {
+			assert.Empty(t, w.track.buckets[i].data)
+			assert.Equal(t, int64(0), w.track.buckets[i].count)
+		}
+	}
+	w.Add(100)
+	for i := 0; i < len(w.track.buckets); i++ {
+		if i == offset {
+			assert.Equal(t, []int64{200}, w.track.buckets[i].data)
+			assert.Equal(t, int64(2), w.track.buckets[i].count)
+		} else {
+			assert.Empty(t, w.track.buckets[i].data)
+			assert.Equal(t, int64(0), w.track.buckets[i].count)
+		}
+	}
+}
+
+func Test_window_checkReset(t *testing.T) {
 	tests := []struct {
-		leftSkip, rightSkip uint
-		want                Aggregator
+		getWin    func() *window
+		wantEmpty map[int]struct{}
+		name      string
+		position  int64
 	}{
 		{
-			leftSkip:  0,
-			rightSkip: 0,
-			want: &trackRangeAgg{
-				state: windowState{
-					size:     w.size,
-					round:    round,
-					position: position,
-				},
-				track:     w.track,
-				locker:    w.rwMu.RLocker(),
-				leftSkip:  0,
-				rightSkip: 0,
+			name: "just_the_last_position",
+			getWin: func() *window {
+				return windowAtLastPosition(32)
 			},
+			position:  32,
+			wantEmpty: map[int]struct{}{},
 		},
 		{
-			leftSkip:  0,
-			rightSkip: 1,
-			want: &trackRangeAgg{
-				state: windowState{
-					size:     w.size,
-					round:    round,
-					position: position,
-				},
-				track:     w.track,
-				locker:    w.rwMu.RLocker(),
-				leftSkip:  0,
-				rightSkip: 1,
+			name: "impossible_before_last_position",
+			getWin: func() *window {
+				return windowAtLastPosition(33)
 			},
+			position: 32,
+			wantEmpty: func() map[int]struct{} {
+				mp := map[int]struct{}{}
+				for i := 32 - 16 + 1; i < 32; i++ {
+					mp[i] = struct{}{}
+				}
+				mp[0] = struct{}{}
+				return mp
+			}(),
+		},
+		{
+			name: "window_fully_rolling_out",
+			getWin: func() *window {
+				return windowAtLastPosition(16)
+			},
+			position: 32,
+			wantEmpty: func() map[int]struct{} {
+				mp := map[int]struct{}{}
+				for i := 32 - 16 + 1; i < 32; i++ {
+					mp[i] = struct{}{}
+				}
+				mp[0] = struct{}{}
+				return mp
+			}(),
+		},
+		{
+			name: "window_partial_rolling_out",
+			getWin: func() *window {
+				return windowAtLastPosition(24)
+			},
+			position: 32,
+			wantEmpty: func() map[int]struct{} {
+				mp := map[int]struct{}{}
+				for i := 25; i < 32; i++ {
+					mp[i] = struct{}{}
+				}
+				mp[0] = struct{}{}
+				return mp
+			}(),
 		},
 	}
 	for _, tt := range tests {
-		t.Run(fmt.Sprintf("%d,%d", tt.leftSkip, tt.rightSkip), func(t *testing.T) {
-			got := w.Aggregation(tt.leftSkip, tt.rightSkip)
-			assert.Equal(t, tt.want, got)
+		t.Run(tt.name, func(t *testing.T) {
+			w := tt.getWin()
+			w.checkReset(tt.position)
+			for i := 0; i < 32; i++ {
+				if _, ok := tt.wantEmpty[i]; ok {
+					assert.Emptyf(t, w.track.buckets[i].data, "bucket[%d]", i)
+				} else {
+					assert.NotEmptyf(t, w.track.buckets[i].data, "bucket[%d]", i)
+				}
+			}
 		})
 	}
+}
+
+func windowAtLastPosition(lastPosition int64) *window {
+	w := NewWindow(16, time.Duration(1<<30)).(*window)
+	for i := range w.track.buckets {
+		w.track.buckets[i].data = []int64{1, 2, 3}
+	}
+	w.lastPosition = lastPosition
+	return w
 }
