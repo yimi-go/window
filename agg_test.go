@@ -54,7 +54,7 @@ func Test_windowAgg_Reduce(t *testing.T) {
 			Now = func() time.Time { return now }
 			defer func() { Now = time.Now }()
 			var sum int64
-			agg.Reduce(func(bucket Bucket) {
+			agg.Reduce(func(bucket Bucket) (done bool) {
 				max, hasValue := int64(math.MinInt64), false
 				for _, v := range bucket.Data() {
 					hasValue = true
@@ -65,6 +65,7 @@ func Test_windowAgg_Reduce(t *testing.T) {
 				if hasValue {
 					sum += max
 				}
+				return false
 			})
 			assert.Equal(t, tt.want, sum)
 		})
@@ -96,7 +97,7 @@ func Test_windowAgg_Reduce2(t *testing.T) {
 			Now = func() time.Time { return now }
 			defer func() { Now = time.Now }()
 			var sum int64
-			agg.Reduce(func(bucket Bucket) {
+			agg.Reduce(func(bucket Bucket) (done bool) {
 				max, hasValue := int64(math.MinInt64), false
 				for _, v := range bucket.Data() {
 					hasValue = true
@@ -107,6 +108,50 @@ func Test_windowAgg_Reduce2(t *testing.T) {
 				if hasValue {
 					sum += max
 				}
+				return false
+			})
+			assert.Equal(t, tt.want, sum)
+		})
+	}
+}
+
+func Test_windowAgg_Reduce3(t *testing.T) {
+	tests := []struct {
+		addPosition int
+		want        int64
+	}{
+		{
+			0, 0,
+		},
+		{
+			-1, 0,
+		},
+		{
+			16, 0,
+		},
+		{
+			8, 8,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d", tt.addPosition), func(t *testing.T) {
+			agg, fbt, bd := buildAgg(0)
+			now := fbt.Add(bd * time.Duration(15+tt.addPosition))
+			Now = func() time.Time { return now }
+			defer func() { Now = time.Now }()
+			var sum int64
+			agg.Reduce(func(bucket Bucket) (done bool) {
+				max, hasValue := int64(math.MinInt64), false
+				for _, v := range bucket.Data() {
+					hasValue = true
+					if max < v {
+						max = v
+					}
+				}
+				if hasValue {
+					sum += max
+				}
+				return true
 			})
 			assert.Equal(t, tt.want, sum)
 		})
