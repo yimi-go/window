@@ -189,3 +189,15 @@ func windowAtLastPosition(lastPosition int64) *window {
 	w.lastPosition = lastPosition
 	return w
 }
+
+func Test_window_BucketNum(t *testing.T) {
+	bucketDuration := time.Duration(1 << 30)
+	w := NewWindow(20, bucketDuration).(*window)
+	assert.Equal(t, int64(20), w.BucketNum())
+}
+
+func Test_window_BucketDuration(t *testing.T) {
+	bucketDuration := time.Duration(1 << 30)
+	w := NewWindow(20, bucketDuration).(*window)
+	assert.Equal(t, bucketDuration, w.BucketDuration())
+}

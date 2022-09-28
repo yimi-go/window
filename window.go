@@ -10,6 +10,8 @@ type Window interface {
 	Append(val int64)
 	Add(val int64)
 	Aggregation(skipRecent uint) Aggregator
+	BucketNum() int64
+	BucketDuration() time.Duration
 }
 
 type Bucket interface {
@@ -129,4 +131,12 @@ func (w *window) Aggregation(skipRecent uint) Aggregator {
 		skipRecent: skipRecent,
 		w:          w,
 	}
+}
+
+func (w *window) BucketNum() int64 {
+	return w.size
+}
+
+func (w *window) BucketDuration() time.Duration {
+	return time.Duration(1 << w.track.bucketDurationBits)
 }
